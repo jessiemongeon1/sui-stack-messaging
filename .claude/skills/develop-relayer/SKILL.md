@@ -156,6 +156,15 @@ If you find yourself wanting to change one of these to fix an underlying problem
 - For Nautilus-attested deployments, see the architecture note in the root `README.md` ("Architecture Evolution") and `docs/sui-stack-messaging/Security.md`.
 - `RUST_LOG` controls log level; default is `messaging_relayer=info`.
 
+### Pre-deploy safety checklist (for a fork going to mainnet)
+
+- **`.env` secrets are out of git.** Confirm `git status` shows no `.env` staged; sponsor keys and admin keys never get committed even briefly.
+- **Network alignment.** `GROUPS_PACKAGE_ID` matches the network the `SUI_RPC_URL` points to. Pointing a mainnet relayer at a testnet `GROUPS_PACKAGE_ID` (or vice versa) silently rejects every write — the membership store stays empty because the on-chain events it watches never fire.
+- **Wire protocol unchanged, OR all consumers updated.** If you modified `handlers/messages/handlers.rs` types, `models/`, or `services/walrus_sync.rs`, every SDK client and the indexer that connect to your relayer have to be updated to the same wire format **before** your relayer goes live — otherwise existing canonical-SDK clients in the same groups stop being able to verify messages from your relayer's clients. This is the load-bearing constraint from the "Load-bearing surfaces" section above.
+- **Sponsor-key custody.** If your fork sponsors transactions, the sponsor key controls real value and is a single point of failure. Use hardware-backed signing or a multisig, not a plaintext key file. Rotate periodically.
+- **Capacity for the new network.** Mainnet checkpoint stream + Walrus testnet/mainnet are noisier than localnet — expect higher RAM and outbound bandwidth, and plan for the membership store growing without bound until you implement persistence (see "Checkpoint backfill / resume" above).
+- **Don't run a forked relayer pointed at the canonical mainnet `sui_stack_messaging` package as a casual experiment.** Any messages your forked relayer accepts and archives become persistent state real users may try to read. Use testnet for forks-in-progress.
+
 ## Cross-links
 
 - Run-local-only flow: [`spin-up-relayer`](../spin-up-relayer/SKILL.md).

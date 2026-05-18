@@ -15,6 +15,8 @@ The relayer is at `relayer/` — a Rust axum service. Reference implementation; 
   - Mainnet: `0x541840ae7df705d1c6329c22415ed61f9140a18b79b13c1c9dc7415b115c1ba8`
   - These are the **sui-groups** package IDs the relayer reads — confirm against `relayer/.env.example` if it changes.
 
+> **Pick testnet for dev.** Pointing your local relayer at the **mainnet** `GROUPS_PACKAGE_ID` means it will sync against the live production `sui_groups` package and persist messages from any client that hits it. For dev work — first runs, debugging, integration tests, anything where you might restart or wipe state — use the testnet ID. Only switch to the mainnet ID when you're intentionally running against real production groups (which is a deployment decision, not a dev one).
+
 ## Configure
 
 ```bash

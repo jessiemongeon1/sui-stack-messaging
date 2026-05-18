@@ -24,6 +24,8 @@ Three services, three terminals. Run in this order so each service is ready befo
 - Rust stable, Node + pnpm `>=10.17.0`, Docker (optional, only if running relayer in container).
 - Working internet to reach Sui testnet RPC and Walrus testnet endpoints.
 
+> **Use testnet, not mainnet, for this whole flow.** This skill assumes a dev wallet funded from the testnet faucet. Every "Create a group" / "Send a message" in the smoke test below mints real on-chain state on whichever network your relayer + chat-app are pointed at. Mainnet group/message creation costs real SUI, persists permanently, and may be visible to real users if your chat-app's group-discovery surface exposes it. Keep `GROUPS_PACKAGE_ID` (relayer) + `VITE_*` package configs (chat-app) on testnet for development.
+
 ## Step 1 — Relayer (terminal 1)
 
 See [`spin-up-relayer`](../spin-up-relayer/SKILL.md) for full details.

@@ -3,3 +3,17 @@ node_modules/
 dist/
 .env
 .env.local
+
+# Skill_Seekers audit artifacts
+.claude/skill-quality-baseline.md
+.claude/skills/*/quality_report.json
+
+# Claude Code user-local config & state (never commit)
+.claude/settings.local.json
+.claude/tasks/
+**/.claude/tasks/
+CLAUDE.local.md
+**/CLAUDE.local.md
+
+# graphify experiment (local-only, not part of the canonical repo tooling)
+graphify-out/

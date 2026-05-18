@@ -144,7 +144,15 @@ Add your own (e.g., `DATABASE_URL`, `WEBHOOK_URL`) and document them next to the
 ## Deployment notes
 
 - `Dockerfile` exists — `docker build -t walrus-indexer .`.
-- For mainnet, set `WALRUS_PUBLISHER_SUI_ADDRESS` to your relayer's address; without it, you'll inspect the entire mainnet blob stream.
+- For mainnet, set `WALRUS_PUBLISHER_SUI_ADDRESS` to your relayer's address; **without it, you'll inspect the entire mainnet blob stream** — that's a lot of RPC + Walrus aggregator load on shared infrastructure, and it'll fill your in-memory store unboundedly. Always set the sender filter when pointing this at mainnet (or any shared/production network).
+
+### Pre-deploy safety checklist (for a fork going to mainnet)
+
+- **Network alignment.** `NETWORK=mainnet` matches the network of the relayer whose `WALRUS_PUBLISHER_SUI_ADDRESS` you're filtering on. Mixing networks gets you zero results silently.
+- **Persistent storage in place.** The default `InMemoryDiscoveryStore` loses everything on restart. For any deployment that survives a process restart, swap to a persistent backend (see "Persistent storage" above) **and** implement checkpoint backfill (see "Checkpoint backfill / resume" above) — without backfill, a fresh persistent store starts empty just like the in-memory one and silently drops everything that landed before startup.
+- **Wire protocol unchanged, OR coordinated with the relayer + SDK.** If you changed `event-parser.ts`, `blob-inspector.ts`, or REST response shapes in `api.ts`, both the relayer's `walrus_sync.rs` (writer) and the SDK's `RecoveryTransport` (consumer) need to know. See the path-scoped rule [`.claude/rules/wire-protocol-cross-impact.md`](../../rules/wire-protocol-cross-impact.md).
+- **Resource budget.** Mainnet checkpoint subscription pulls every checkpoint; even with the sender filter applied at the indexer (tier 1), the gRPC subscription itself does not pre-filter. Plan for sustained outbound bandwidth and CPU.
+- **Don't run a hobby indexer against canonical mainnet infrastructure** if the only consumer is you — use testnet. An indexer that crashes mid-stream is harmless on testnet; on mainnet it costs the operator real RPC budget and may rate-limit you out of the shared endpoint.
 
 ## Cross-links
 

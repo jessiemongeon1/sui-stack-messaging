@@ -53,7 +53,7 @@ sui_stack_messaging = { git = "https://github.com/MystenLabs/sui-stack-messaging
 sui_groups          = { git = "https://github.com/MystenLabs/sui-groups.git", subdir = "move/packages/sui_groups", rev = "ea766818b90e162341e885a855718388edcc8e99" } # tag mainnet/v1
 ```
 
-Pin a release tag instead of `main` for reproducible builds. The `Sui` framework dependency is added automatically by `sui move new`.
+**Pin a release tag or commit SHA — never `main` — before any mainnet publish.** The example above uses `rev = "main"` only for local prototyping; `main` can shift between a testnet and a mainnet publish, leaving you with two non-identical compiled packages. The `sui_groups` line shows the right shape — pin to a specific commit and label it (here: `tag mainnet/v1`). The `Sui` framework dependency is added automatically by `sui move new`.
 
 ## Extension pattern 1 — custom Seal policy
 
@@ -266,7 +266,7 @@ tx.add(
 // ...sign and submit tx with the admin's signer.
 ```
 
-The convenience layer `client.groups.tx.grantPermission({ transaction, ... })` and the top-level `await client.groups.grantPermission({ signer, ... })` (build + sign + submit) are also available — see `~/Dev/work/projects/sui-groups/ts-sdks/packages/sui-groups/src/{call,transactions,client}.ts`.
+The convenience layer `client.groups.tx.grantPermission({ transaction, ... })` and the top-level `await client.groups.grantPermission({ signer, ... })` (build + sign + submit) are also available — see the upstream `@mysten/sui-groups` package: [`MystenLabs/sui-groups`](https://github.com/MystenLabs/sui-groups) (`ts-sdks/packages/sui-groups/src/{call,transactions,client}.ts`).
 
 The caller of this tx must hold `PermissionsAdmin` on the group (the creator does by default).
 
@@ -303,17 +303,40 @@ For a broader index of runnable usage examples (the full integration test suite,
 
 ## Publish
 
-Publish your extension package with the Sui CLI like any other Move package:
+> **Safety — read before running `sui client publish`.**
+>
+> Publishing a Move package is **irreversible and costs real SUI on the target network.** The package ID is permanent, mined into every transaction that references it, and gets baked into your downstream TypeScript config (`packageConfig.messaging.originalPackageId` / `latestPackageId`) — there is no "unpublish." On mainnet, mistakes cost real money and have to be worked around with a fresh publish + downstream config changes.
+>
+> Pre-publish checklist — run these and read the output before invoking `publish`:
+>
+> ```bash
+> sui client active-env       # confirm: testnet (NOT mainnet) for a dev publish
+> sui client active-address   # confirm: this is your DEV deployer, not a multisig / treasury
+> sui client gas              # confirm: enough SUI for the gas budget below
+> sui move build --path /path/to/my_messaging_extension          # confirm: clean build
+> sui move test  --path /path/to/my_messaging_extension          # confirm: tests pass
+> ```
+>
+> Then publish — the `--dry-run` flag is your friend the first time on any network:
+>
+> ```bash
+> # Dry-run first — no on-chain effect; surfaces gas + abort errors before they cost SUI.
+> sui client publish --gas-budget 200000000 --dry-run /path/to/my_messaging_extension
+>
+> # Real publish (testnet recommended for first iterations):
+> sui client publish --gas-budget 200000000 /path/to/my_messaging_extension
+> ```
+>
+> Capture the printed package ID from the transaction effects — you'll wire it into your app config. The CLI writes the deployed address into `Move.lock` (and `Published.toml` if you opt into automated address management; see Sui docs on `sui move manage-package`). **Commit `Move.lock` immediately after publish** so future builds resolve dependencies to the same address.
+>
+> Mainnet publish guidance:
+>
+> - Iterate on testnet until the package is stable and the downstream TypeScript integration is verified end-to-end. Mainnet should be the *last* network you publish to, not the first.
+> - **Pin all git dependencies in `Move.toml` to a release tag or commit SHA, not `main`** (see the `[dependencies]` block above — the `sui_stack_messaging` example uses `rev = "main"`; replace with a release tag before mainnet publish). `main` can move between your testnet and mainnet publishes, producing two non-identical packages.
+> - Use a deployer address whose private key is under appropriate custody for production (hardware wallet, multisig, controlled CI signer). Never publish to mainnet from `~/.sui/sui_config/sui.keystore` on a laptop unless that's an intentional choice for a small disposable package.
+> - Expect to pay tens of SUI in gas for a non-trivial publish. Have headroom — running out mid-tx aborts.
 
-```bash
-sui client switch --env testnet                       # or mainnet
-sui client active-address                             # confirm deployer address has gas
-sui client publish --gas-budget 200000000 /path/to/my_messaging_extension
-```
-
-Capture the printed package ID from the transaction effects — you'll wire it into your app config. The CLI writes the deployed address into `Move.lock` (and `Published.toml` if you opt into automated address management; see Sui docs on `sui move manage-package`).
-
-The `publish/` directory in this repo is a maintainer-only helper used to publish the canonical `sui_stack_messaging` package. Do not use it for your extension package — use `sui client publish` directly or your own custom publishing scripts.
+The `publish/` directory in this repo is a **maintainer-only** helper used to publish the canonical `sui_stack_messaging` package. **Do not use it for your extension package** — use `sui client publish` directly or your own custom publishing scripts.
 
 ## After publishing — wire to the SDK
 
