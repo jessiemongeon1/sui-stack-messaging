@@ -22,12 +22,12 @@ encryption: { sessionKey: { signer: keypair } }
 The SDK derives the address from `signer.toSuiAddress()`, creates a `SessionKey`, and certifies it automatically. Works with:
 
 - `Keypair` directly (Node/server-side, scripts).
-- `@mysten/dapp-kit-next`'s `CurrentAccountSigner`.
+- `@mysten/dapp-kit`'s `CurrentAccountSigner`.
 - Enoki's `EnokiSigner`.
 
 **Use this whenever you have a `Signer` instance.** Zero ceremony.
 
-### Tier 2 — callback-based (current dapp-kit without Signer)
+### Tier 2 — callback-based
 
 ```ts
 encryption: {
@@ -41,25 +41,25 @@ encryption: {
 }
 ```
 
-The SDK creates the session key, then calls `onSign()` with the personal-message bytes. **Use this for current dapp-kit integrations that haven't migrated to `Signer`** (or for any wallet integration where you only have a "sign personal message" surface, not a full `Signer`).
+The SDK creates the session key, then calls `onSign()` with the personal-message bytes. Use this when you only have a "sign personal message" surface — not a full `Signer` — to integrate with.
 
 UX note: `onSign` triggers a wallet popup. The first decryption per session will prompt the user. Tune `ttlMin` (below) to avoid re-prompting.
 
-### Tier 3 — manual (full lifecycle control)
+### Tier 3 — consumer-managed SessionKey
 
 ```ts
 encryption: { sessionKey: { getSessionKey: () => myManagedSessionKey } }
 ```
 
-Rarely needed. Choose this only if you have a strong reason to manage the `SessionKey` instance outside the SDK — for example, sharing one session key across multiple SDK instances, or persisting/rehydrating it across page reloads. The SDK calls `getSessionKey()` whenever it needs a key; you own creation, certification, expiry, and replacement.
+You own creation, certification, expiry, and replacement of the `SessionKey`. The callback may return `SessionKey` or `Promise<SessionKey>`. The manager caches the returned instance and re-calls your callback only when it detects the cached instance is approaching its own `ttlMin` expiry. Useful for sharing one SessionKey across multiple SDK instances, persisting/rehydrating across page reloads, or wiring in custom creation logic.
 
-If you're tempted to reach for Tier 3 because Tier 1 or Tier 2 doesn't quite work — investigate first. Almost everything is covered by Tier 1 or 2.
+Note: Tier 3's config variant excludes `ttlMin`, so the DEK cache falls back to the 10-minute default regardless of your SessionKey's own TTL — a 30-min consumer-managed session will still see DEK entries flush every 10 min.
 
 ## TTL and refresh-buffer tuning (Tier 1 & 2)
 
 | Option | Default | Description | When to change |
 |---|---|---|---|
-| `ttlMin` | `10` (minutes) | Session key total lifetime | Increase to reduce wallet prompts (longer sessions); decrease for tighter access-revocation latency |
+| `ttlMin` | `10` (minutes) | Session-key lifetime; **also** the DEK cache TTL (same value backs both for Tier 1/2) | Increase to reduce wallet prompts and Seal round-trips; decrease for tighter access-revocation latency |
 | `refreshBufferMs` | `60000` (60 sec) | Refresh proactively this many ms before expiry | Increase if you've seen "key expired during long fetches"; decrease to push TTL boundary |
 | `mvrName` | `undefined` | MVR (Move Registry) name for Seal policy resolution | Set only if you've registered your package under MVR; otherwise leave undefined |
 
@@ -72,9 +72,8 @@ Note: the session key only authorizes **decryption requests to Seal key servers*
 Whichever tier you pick, the SDK's `SessionKeyManager` (`ts-sdks/packages/sui-stack-messaging/src/encryption/session-key-manager.ts`) handles:
 
 1. **Lazy creation.** No session key is created until the first encryption / decryption call needs one. Avoids prompting the wallet on idle pages.
-2. **Auto-refresh.** When the current key is within `refreshBufferMs` of expiry, the manager creates a new one in the background. Inflight Seal calls continue with the still-valid key; future calls use the fresh key.
-3. **Single-flight creation.** Concurrent calls share one in-progress creation, so you don't get multiple simultaneous wallet popups.
-4. **DEK cache is bound to session-key lifetime.** When the session key expires, the per-(group, keyVersion) DEK cache entries also expire — see `dek-manager.ts`. After a session-key swap, the next decryption for each group triggers one Seal round-trip to repopulate the cache.
+2. **Single-flight refresh.** When the current key is within `refreshBufferMs` of expiry, the next call triggers creation of a new one. Concurrent callers during creation queue on the same promise — so you don't get multiple simultaneous wallet popups. Callers that already grabbed a `SessionKey` reference before refresh continue with the still-valid old key.
+3. **DEK cache TTL is set from `ttlMin`.** The DEK cache (a `TtlMap` in `envelope-encryption.ts`, not `dek-manager.ts`) uses the configured `ttlMin` as its TTL. Each entry stamps its own `expiresAt = insertion_time + ttlMin` and is lazily evicted on next access — independent of any specific SessionKey instance. Session-key refresh does **not** invalidate the cache; entries only expire on their own per-entry TTL or via an explicit `client.messaging.encryption.clearCache(groupId?)`.
 
 ## Key rotation under load — a Builder gotcha
 
@@ -106,7 +105,7 @@ With those guardrails in place:
 1. **Tier 1 end-to-end** (Node script, dev signer, throwaway group): on a **fresh disposable test group**, call `await client.messaging.createAndShareGroup({ signer, ... })` then `sendMessage`. The first decrypt-needing operation implicitly creates + certifies the session key. No throw → signer reachable + session-key flow works. *Mutating: creates a new on-chain group object and writes one message via the relayer; costs gas.*
 2. **Tier 2 sanity** (in your dapp, against a dev group only): trigger any operation that fetches + decrypts an existing message (e.g. `client.messaging.getMessages({ groupRef, limit: 1 })`). This is **read-only** — safe against any group your dev signer can read. Confirm `onSign` is called **once** with a `Uint8Array`; confirm subsequent decryptions within `ttlMin` do **not** re-trigger `onSign`.
 3. **TTL behavior** (read-only): set `ttlMin: 1` for a manual test. After ~60s, trigger another `getMessages` call against a dev group (Tier 1: silent refresh; Tier 2: one new `onSign` call). Reset to your production `ttlMin` afterwards. *Non-mutating.*
-4. **DEK cache flush on rotation** (**mutating** — disposable test group only): on a **dev group you have explicitly created for this test**, call `client.messaging.rotateEncryptionKey({...})` ([`client.ts`](../../../ts-sdks/packages/sui-stack-messaging/src/client.ts)); then `getMessages` for the same group triggers one fresh Seal round-trip for the new `keyVersion`. Subsequent fetches hit the cache. To force-clear the cache **without mutating chain state** (preferable when iterating), call `client.messaging.encryption.clearCache(groupId?)` — this is the right tool for cache-behavior tests that don't actually need a rotation.
+4. **DEK cache miss on a new key version** (**mutating** — disposable test group only): on a **dev group you have explicitly created for this test**, call `client.messaging.rotateEncryptionKey({...})` ([`client.ts`](../../../ts-sdks/packages/sui-stack-messaging/src/client.ts)). The cache is keyed by `(groupId, keyVersion)`, so the next `getMessages` involving the new version is a cache miss → one fresh Seal round-trip; entries for the old version stay until their per-entry TTL expires. Subsequent fetches for the new version hit the cache. To force-clear cache entries **without mutating chain state** (preferable when iterating), call `client.messaging.encryption.clearCache(groupId?)` — this is the right tool for cache-behavior tests that don't actually need a rotation.
 
 If you're seeing unexpected wallet popups, the most common causes are: (a) `ttlMin` too short, (b) Tier 2 `onSign` is being called for every decryption because the implementation isn't actually returning a valid signature, (c) you're constructing a new client per render (each construction creates its own SessionKeyManager). All three are app-side issues — **don't reach for `rotateEncryptionKey` as a diagnostic step**; it doesn't help with session-key issues and it permanently mutates the group.
 

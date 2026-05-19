@@ -1,6 +1,6 @@
 ---
 name: develop-walrus-indexer
-description: Use when the user wants to fork or extend the reference TypeScript walrus-discovery-indexer — custom event filters, persistent storage backend (PostgreSQL/MongoDB instead of in-memory), output sinks (webhooks, queues), custom blob discovery rules, or BCS event parsing. Trigger phrases - "extend the walrus indexer", "fork the indexer", "custom event filter", "indexer storage backend", "blob discovery rules", "indexer webhook", "walrus discovery custom".
+description: Use when the user wants to fork or extend the reference TypeScript walrus-discovery-indexer — custom event filters, persistent storage backend (PostgreSQL/MongoDB instead of in-memory), output sinks (webhooks, queues), custom blob discovery rules, or BCS event parsing. Trigger phrases - "extend the walrus indexer", "fork the walrus indexer", "custom event filter", "indexer storage backend", "blob discovery rules", "indexer webhook", "walrus discovery custom".
 ---
 
 # Develop the Walrus discovery indexer
@@ -151,8 +151,6 @@ Add your own (e.g., `DATABASE_URL`, `WEBHOOK_URL`) and document them next to the
 - **Network alignment.** `NETWORK=mainnet` matches the network of the relayer whose `WALRUS_PUBLISHER_SUI_ADDRESS` you're filtering on. Mixing networks gets you zero results silently.
 - **Persistent storage in place.** The default `InMemoryDiscoveryStore` loses everything on restart. For any deployment that survives a process restart, swap to a persistent backend (see "Persistent storage" above) **and** implement checkpoint backfill (see "Checkpoint backfill / resume" above) — without backfill, a fresh persistent store starts empty just like the in-memory one and silently drops everything that landed before startup.
 - **Wire protocol unchanged, OR coordinated with the relayer + SDK.** If you changed `event-parser.ts`, `blob-inspector.ts`, or REST response shapes in `api.ts`, both the relayer's `walrus_sync.rs` (writer) and the SDK's `RecoveryTransport` (consumer) need to know. See the path-scoped rule [`.claude/rules/wire-protocol-cross-impact.md`](../../rules/wire-protocol-cross-impact.md).
-- **Resource budget.** Mainnet checkpoint subscription pulls every checkpoint; even with the sender filter applied at the indexer (tier 1), the gRPC subscription itself does not pre-filter. Plan for sustained outbound bandwidth and CPU.
-- **Don't run a hobby indexer against canonical mainnet infrastructure** if the only consumer is you — use testnet. An indexer that crashes mid-stream is harmless on testnet; on mainnet it costs the operator real RPC budget and may rate-limit you out of the shared endpoint.
 
 ## Cross-links
 

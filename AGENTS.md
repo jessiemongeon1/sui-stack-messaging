@@ -29,11 +29,13 @@ External canonical dependency: [`sui-groups`](https://github.com/MystenLabs/sui-
 ## Canonical vs reference — the mental model
 
 **Canonical** (`move/packages/sui_stack_messaging/`, `ts-sdks/packages/sui-stack-messaging/`): consume; do not fork.
+
 - Move contracts are already published to mainnet and testnet (see "Canonical package addresses" below).
 - The SDK is on npm as `@mysten/sui-stack-messaging`. Pin the version, don't vendor the source.
 - To extend: write your own Move package depending on `sui_stack_messaging` (see `move/packages/example_app/` for two worked examples), or implement the SDK's transport/storage/recovery interfaces.
 
 **Reference** (`relayer/`, `walrus-discovery-indexer/`, `chat-app/`): fork as a starting point and modify freely.
+
 - Intentionally minimal. Real deployments will replace storage backends, auth strategies, observability, deployment topology.
 - The SDK talks to the relayer through the `RelayerTransport` TS interface — implement your own transport without forking the Rust code, or fork the Rust code.
 
@@ -64,15 +66,15 @@ When you `cd` into one of these directories, Claude Code auto-loads the relevant
 
 From `move/packages/sui_stack_messaging/Published.toml`:
 
-| Network | sui_stack_messaging |
-|---|---|
+| Network | sui_stack_messaging                                                  |
+| ------- | -------------------------------------------------------------------- |
 | Mainnet | `0xcbd2f4c25c7f799c45c0c9f221850178b711b2c89916c8e99038aa8ac609a62e` |
 | Testnet | `0x047696be0e98f1b47a99727fecf2955cadb23c56f67c6b872b74e3ad59d51b46` |
 
 Sui Groups (from `relayer/.env.example`):
 
-| Network | sui_groups |
-|---|---|
+| Network | sui_groups                                                           |
+| ------- | -------------------------------------------------------------------- |
 | Mainnet | `0x541840ae7df705d1c6329c22415ed61f9140a18b79b13c1c9dc7415b115c1ba8` |
 | Testnet | `0xba8a26d42bc8b5e5caf4dac2a0f7544128d5dd9b4614af88eec1311ade11de79` |
 
@@ -115,7 +117,7 @@ Per-component:
 
 - `integrate-sui-stack-messaging/SKILL.md` — bootstrap the SDK into an existing dapp.
 - `configure-walrus-storage-via-sdk/SKILL.md` — programmatic Walrus storage (no publisher/aggregator dependency).
-- `configure-custom-relayer-transport/SKILL.md` — bring your own relayer / sponsor model.
+- `configure-custom-relayer-transport/SKILL.md` — customize the relayer transport layer
 - `configure-session-keys/SKILL.md` — managed vs externally-provided Seal session keys.
 - `debug-encryption-flow/SKILL.md` — diagnose decryption failures end-to-end.
 
@@ -123,7 +125,7 @@ Per-component:
 
 - Node: pnpm `>=10.17.0`.
 - Rust: stable + clippy + rustfmt.
-- Sui CLI: required for Move build/test/publish (canonical builds pinned to `1.68.1`).
+- Sui CLI: required for Move build/test/publish
 - Move edition: 2024.
 
 ## Code style
@@ -133,7 +135,7 @@ Per-component:
 - **Move** (`move/`): edition `2024`. No formatter shipped in-repo.
 - **Imports**: TS uses `@ianvs/prettier-plugin-sort-imports`; don't reorder by hand.
 - **No emojis** in committed code, comments, or docs unless explicitly requested.
-- **Comments**: write only when the *why* is non-obvious. Don't restate what the code does or reference the current task / PR / issue number.
+- **Comments**: write only when the _why_ is non-obvious. Don't restate what the code does or reference the current task / PR / issue number.
 
 ## Security considerations
 
@@ -156,7 +158,7 @@ See `docs/sui-stack-messaging/Testing.md` for the full strategy.
 
 ## Commit and PR conventions
 
-- **Conventional Commits** style (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:` …) is used in recent history.
+- **Conventional Commits** style (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:` …)
 - **Changesets** govern SDK version bumps. If your change affects the public API of any TS package under `ts-sdks/packages/`, run `pnpm changeset` and commit the generated `.changeset/*.md` along with your code change. See `ts-sdks/RELEASING.md`.
 - **One logical change per PR.** Don't bundle a refactor with a feature.
 - **Don't push to `main` directly.** Open a PR. Don't force-push to shared branches.

@@ -23,8 +23,6 @@ sui move test  --path packages/example_app
 ## Toolchain
 
 - Move edition: `2024`.
-- Sui CLI: pinned to `1.68.1` for canonical builds (see `packages/sui_stack_messaging/Published.toml` and `Move.lock`). Other versions may build, but only `1.68.1` matches the on-chain bytecode.
-- No formatter shipped in-repo.
 
 ## Hard invariants
 

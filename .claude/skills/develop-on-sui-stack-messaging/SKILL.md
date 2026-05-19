@@ -10,7 +10,7 @@ Top-level orientation for anyone building on this repo. Read this first, then ju
 ## What's in this repo
 
 ```
-groups-sdk/
+sui-stack-messaging/
 ├── move/                                       CANONICAL  Move smart contracts
 │   └── packages/sui_stack_messaging/             ← consume as published; extend in your own package
 ├── ts-sdks/packages/sui-stack-messaging/        CANONICAL  TypeScript SDK
@@ -51,21 +51,21 @@ groups-sdk/
 
 These are the typical extension points — surface area was designed for them:
 
-1. **Custom relayer logic** — sponsor-key strategy, rate limiting, allowlists, persistence backend, observability. Fork `relayer/`.
-2. **Custom archived-message recovery / Walrus blob discovery** — alternative archival-recovery flows or analytics over what the relayer wrote to Walrus. Fork `walrus-discovery-indexer/`. (Note: this is *not* user-facing "Group Discovery" — that's an SDK + Sui GraphQL concern; see `docs/sui-stack-messaging/GroupDiscovery.md`.)
+1. **Custom relayer logic** — sponsor-key strategy, rate limiting, persistence backend, observability. Fork `relayer/`.
+2. **Custom archived-message recovery / Walrus blob discovery** — alternative archival-recovery flows or analytics over what the relayer wrote to Walrus. Fork `walrus-discovery-indexer/`. (Note: this is _not_ user-facing "Group Discovery" — that's an SDK + Sui GraphQL concern; see `docs/sui-stack-messaging/GroupDiscovery.md`.)
 3. **Custom Seal policies** — token-gated, subscription-based, or any application-specific access control. Add a Move module that implements `seal_approve_*` (see `move/packages/example_app/sources/custom_seal_policy.move`).
 4. **Custom join rules** — paid joins, reputation gates, etc. (see `move/packages/example_app/sources/paid_join_rule.move`).
 5. **Custom transports** — implement the `RelayerTransport` TS interface. Whether you also need to fork the relayer depends on the transport:
    - **In-process / queue / Nautilus-attested with HTTP semantics** — TS-only; no relayer fork.
    - **WebSocket / SSE / any non-HTTP wire format** — the reference relayer is HTTP-only (axum 0.7, no WS/SSE endpoints). You will need to fork it to expose the new transport server-side.
-6. **Custom storage adapters** — implement the `StorageAdapter` TS interface for attachments to use S3/IPFS/etc. instead of Walrus.
+6. **Custom attachment storage adapters** — implement the `StorageAdapter` TS interface. SDK-side only; no relayer change. Talk to Walrus directly via `@mysten/walrus` (drops the publisher/aggregator dep; unlocks delete, epoch-extension, Upload Relay), or plug a non-Walrus backend (S3, IPFS, etc.). See [`configure-walrus-storage-via-sdk`](../configure-walrus-storage-via-sdk/SKILL.md).
 7. **Custom recovery transports** — `RecoveryTransport` interface for alternative archive sources.
 
 ## Known gaps in the reference implementations
 
 Two things you'll likely want to add early — they are not in the reference impls:
 
-- **Checkpoint backfill / resume** — neither the relayer (`relayer/src/services/membership_sync.rs`) nor the indexer (`walrus-discovery-indexer/src/checkpoint-listener.ts`) persists or resumes from a checkpoint cursor. Both subscribe to the live Sui gRPC checkpoint stream from "now" on each start, so events emitted in any restart/downtime gap are dropped. The canonical fix walks historical checkpoints via gRPC `LedgerService.GetCheckpoint(sequence_number)` between the persisted cursor and the live tip, persisting a `(sequence, last_tx_digest)` pair so resume can skip already-processed transactions in the boundary checkpoint. See [`develop-relayer`](../develop-relayer/SKILL.md) and [`develop-walrus-indexer`](../develop-walrus-indexer/SKILL.md) for the per-service detail and the TypeScript reference implementation.
+- **Checkpoint backfill / resume** — neither the relayer (`relayer/src/services/membership_sync.rs`) nor the walrus-discovery-indexer (`walrus-discovery-indexer/src/checkpoint-listener.ts`) persists or resumes from a checkpoint cursor. Both subscribe to the live Sui gRPC checkpoint stream from "now" on each start, so events emitted in any restart/downtime gap are dropped. The canonical fix walks historical checkpoints via gRPC `LedgerService.GetCheckpoint(sequence_number)` between the persisted cursor and the live tip, persisting a `(sequence, last_tx_digest)` pair so resume can skip already-processed transactions in the boundary checkpoint. See [`develop-relayer`](../develop-relayer/SKILL.md) and [`develop-walrus-indexer`](../develop-walrus-indexer/SKILL.md) for the per-service detail and the TypeScript reference implementation.
 - **Persistent storage** — both services default to in-memory stores. State is lost on restart. Pair with checkpoint resume above so a new instance can rebuild state.
 
 ## What is NOT a customization point
@@ -103,7 +103,7 @@ The unit suite at `ts-sdks/packages/sui-stack-messaging/test/unit/` is more gran
 
 - Node: pnpm `>=10.17.0` (see `ts-sdks/package.json`).
 - Rust: stable toolchain with `clippy` + `rustfmt` (see `relayer/rust-toolchain.toml`).
-- Sui CLI: required for Move build/publish. Toolchain pinned at 1.68.1 in `Published.toml`.
+- Sui CLI: required for Move build/publish.
 - Move edition: 2024.
 
 ## Repo invariants

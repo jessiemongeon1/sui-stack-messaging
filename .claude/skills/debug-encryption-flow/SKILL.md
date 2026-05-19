@@ -47,12 +47,12 @@ See [`configure-session-keys`](../configure-session-keys/SKILL.md) for full life
 **Failure surface:** Errors mentioning "Seal decryption failed", "threshold not met", "seal_approve denied", or `keyVersion` not found.
 
 **Most common causes:**
-- **Wrong Seal `serverConfigs`** — the `objectId`s don't exist or are deprecated; threshold doesn't match the count of key servers; the package the SDK is on is different from the package the key servers are configured for. Confirm against Seal docs and `docs/sui-stack-messaging/Setup.md`.
-- **Caller doesn't have `MessagingReader` permission** on the group. `seal_approve_reader` checks group membership — if you can't decrypt and your address was just removed from the group, that's expected behavior. If you should have access, check the on-chain `PermissionedGroup<Messaging>` object's members list.
+- **Caller doesn't have `MessagingReader` permission** on the group. `seal_approve_reader` checks group membership — if you can't decrypt and your address was just removed from the group, that's expected behavior. If you should have access, check the on-chain `PermissionedGroup<Messaging>` object's members list. **This case is structurally wrapped** — the SDK throws `EncryptionAccessDeniedError` (importable from `@mysten/sui-stack-messaging`), with the underlying Seal `NoAccessError` on `.cause`.
+- **Wrong Seal `serverConfigs`** — the `objectId`s don't exist or are deprecated; threshold doesn't match the count of key servers; the package the SDK is on is different from the package the key servers were registered for. Confirm against Seal docs and `docs/sui-stack-messaging/Setup.md`.
 - **`keyVersion` references a version that doesn't exist** in `EncryptionHistory` — usually means the message was sent against a different group than the one the SDK is now querying (wrong `groupId` / UUID derivation collision).
 - **Custom Seal policy rejects the call** (if you have one) — your `seal_approve` function's assertions are failing. Test the policy independently with `extend-smart-contracts` recipes.
 
-Diagnostic: instrument `client.messaging.encryption.decrypt(...)` with try/catch and log the inner error from Seal — it usually says exactly which key server returned which status code.
+Diagnostic: for non-permission failures the underlying `@mysten/seal` error propagates as a plain `Error` (only the permission case is wrapped). Catch + log `.message` — it usually identifies which key server returned which status code. Instrument `client.messaging.encryption.decrypt(...)` directly if you want to isolate Stage 3 from Stages 4/5.
 
 ### Stage 4 — AES-GCM decrypt with AAD
 
@@ -85,19 +85,22 @@ The per-message signature is over:
 
 **Most common causes:**
 - **Custom relayer stripped or rewrote `signature` / `publicKey`** on the `RelayerMessage`. See [`configure-custom-relayer-transport`](../configure-custom-relayer-transport/SKILL.md) — these fields must round-trip losslessly.
-- **Relayer is impersonating senders** (or there's a real bug in your custom relayer) — `publicKey` doesn't derive to `senderAddress`.
-- **Sender used a wallet with a scheme the SDK doesn't yet support** — the SDK supports Ed25519, Secp256k1, Secp256r1; zkLogin signatures are *not yet supported* for sender verification (see [GitHub issue #63](https://github.com/MystenLabs/sui-stack-messaging/issues/63)). If your sender used a wallet with a non-Ed25519/Secp* scheme, `senderVerified` will be false.
+- **Missing `signature` or `publicKey` on the wire.** `verifyMessageSender` is only invoked when both are present; if either is absent the SDK returns `senderVerified: false` as a fail-safe (no exception). Same outcome for deleted messages (`isDeleted: true`) — they short-circuit decryption entirely.
+- **`publicKey` doesn't derive to `senderAddress`** — the relayer is impersonating senders, or there's a real bug in your custom relayer. Verification re-derives the address from `publicKey` and compares against `senderAddress`; a mismatch returns false.
+- **Unsupported signature scheme on the wire.** The SDK supports Ed25519, Secp256k1, Secp256r1 only; zkLogin and multisig signatures fail verification. Note the canonical SDK send path (`signMessageContent` in `verification.ts`) already throws at *send time* for non-keypair schemes — so unsupported-scheme signatures on the wire mean a custom relayer or sender code path bypassed the SDK's signing helper. Look upstream of the SDK.
 
 If decryption itself succeeds and only `senderVerified` is false, the *contents* are still trustworthy if you trust your relayer — but the SDK is correctly flagging that it can't independently verify authorship. Surface this in your UI as a warning.
 
 ## Attachment-specific issues
 
-Attachments use a separate encryption envelope per attachment (same DEK, different nonce; metadata encrypted separately).
+Each attachment has **two** independent envelopes: one for the file body, one for its metadata (fileName / mimeType / fileSize / extras). Both use the same DEK as the parent message but each gets its own random nonce. **Attachments do not use AAD** (`attachments-manager.ts` encrypt calls pass no `aad`) — so the Stage 4 context-mismatch reasoning above does **not** apply here.
+
+Access is lazy. `getMessages` returns each `DecryptedMessage` with an `attachments: AttachmentHandle[]` array; each handle carries decrypted metadata plus a `data()` async closure. **`data()` is what triggers the storage-adapter download + the file-body AES-GCM decrypt** — until you call it, no attachment bytes are fetched.
 
 If text decrypts fine but attachments don't:
-- Confirm `attachments.storageAdapter` is configured — without it, attachment metadata is decryptable but `getAttachmentData` won't work.
-- Check the storage adapter — for `WalrusHttpStorageAdapter`, hit the aggregator URL directly with the patch ID to confirm the bytes are reachable.
-- File metadata (fileName / mimeType / fileSize) is encrypted with its own nonce; if that decrypts but the file body doesn't, the issue is in the storage adapter's download, not encryption.
+- **Did metadata decrypt but `data()` throw?** Then the file body is the problem, not the metadata: the storage adapter's download returned the wrong bytes (or threw), or the file's nonce/ciphertext didn't round-trip cleanly via the relayer's `Attachment` record. Inspect what `storageAdapter.download(attachment.storageId)` returns.
+- **Did `data()` throw with an AES-GCM / OperationError?** Because attachments don't use AAD, this is a DEK or nonce mismatch — most likely the message's `keyVersion` doesn't match the version the attachment was encrypted under, or the on-the-wire `nonce` got corrupted/truncated.
+- **Confirm `attachments.storageAdapter` is configured at client construction.** Without it, the client never builds an `AttachmentsManager`, so `data()` calls won't have a download path. For `WalrusHttpStorageAdapter`, hit the aggregator URL directly with the patch ID to confirm the bytes are reachable.
 
 See [`docs/sui-stack-messaging/Attachments.md`](../../../docs/sui-stack-messaging/Attachments.md) for the full attachment encryption model.
 
@@ -106,7 +109,10 @@ See [`docs/sui-stack-messaging/Attachments.md`](../../../docs/sui-stack-messagin
 There's no public way to probe the session-key stage in isolation (`SessionKeyManager` is internal). The cheapest diagnostic is a single `getMessages` call that exercises Stages 1 → 5, with error-type discrimination:
 
 ```ts
-import { RelayerTransportError } from '@mysten/sui-stack-messaging';
+import {
+  RelayerTransportError,
+  EncryptionAccessDeniedError,
+} from '@mysten/sui-stack-messaging';
 
 try {
   const { messages } = await client.messaging.getMessages({ groupRef, limit: 1 });
@@ -115,10 +121,12 @@ try {
 } catch (err) {
   if (err instanceof RelayerTransportError) {
     console.error('Stage 1 (relayer):', err.status, err.code, err.message);
+  } else if (err instanceof EncryptionAccessDeniedError) {
+    console.error('Stage 3 (no MessagingReader permission on group):', err.cause);
   } else if (err instanceof Error && /session|certif|seal/i.test(err.message)) {
-    console.error('Stage 2 (session key) or Stage 3 (Seal/DEK):', err);
+    console.error('Stage 2 (session key) or Stage 3 (other Seal/DEK failure):', err);
   } else if (err instanceof Error && /OperationError|authentication/i.test(err.message)) {
-    console.error('Stage 4 (AES-GCM AAD mismatch):', err);
+    console.error('Stage 4 (AES-GCM AAD mismatch on message decrypt):', err);
   } else {
     console.error('Unknown failure:', err);
   }
@@ -132,8 +140,10 @@ If `senderVerified` is `false` but no exception was thrown → Stage 5 alone. If
 - Encryption model deep-dive: [`docs/sui-stack-messaging/Encryption.md`](../../../docs/sui-stack-messaging/Encryption.md).
 - Trust model: [`docs/sui-stack-messaging/Security.md`](../../../docs/sui-stack-messaging/Security.md).
 - Implementation references:
-  - `ts-sdks/packages/sui-stack-messaging/src/encryption/envelope-encryption.ts` — main encrypt/decrypt path.
-  - `ts-sdks/packages/sui-stack-messaging/src/encryption/dek-manager.ts` — DEK cache.
+  - `ts-sdks/packages/sui-stack-messaging/src/encryption/envelope-encryption.ts` — main encrypt/decrypt path; owns the DEK cache (`TtlMap`-backed).
+  - `ts-sdks/packages/sui-stack-messaging/src/encryption/dek-manager.ts` — stateless Seal encrypt/decrypt helper (no cache).
   - `ts-sdks/packages/sui-stack-messaging/src/encryption/session-key-manager.ts` — session key lifecycle.
   - `ts-sdks/packages/sui-stack-messaging/src/verification.ts` — sender verification.
+  - `ts-sdks/packages/sui-stack-messaging/src/attachments/attachments-manager.ts` — attachment encrypt/upload/resolve flow.
+  - `ts-sdks/packages/sui-stack-messaging/src/error.ts` — SDK-thrown error classes.
 - Related skills: [`configure-session-keys`](../configure-session-keys/SKILL.md), [`configure-custom-relayer-transport`](../configure-custom-relayer-transport/SKILL.md), [`extend-smart-contracts`](../extend-smart-contracts/SKILL.md) (for custom Seal policies).

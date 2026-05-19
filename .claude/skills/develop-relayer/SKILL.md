@@ -1,6 +1,6 @@
 ---
 name: develop-relayer
-description: Use when the user wants to fork or extend the reference Rust axum relayer — custom storage backend (PostgreSQL, S3, …), custom auth middleware, new routes/handlers, sponsor-key strategy, allowlists, rate limiting, or running it inside Nautilus. Trigger phrases - "extend the relayer", "fork the relayer", "add storage to relayer", "custom auth middleware", "custom relayer handler", "PostgreSQL relayer", "relayer rate limiting".
+description: Use when the user wants to fork or extend the reference Rust axum relayer — checkpoint backfill/resume so events aren't dropped on restart, custom storage backend (PostgreSQL, S3, …), new routes/handlers (e.g., a relayer-side Group Discovery endpoint backed by the groups index), sponsor-key strategy, operator policy (rate limiting, tenant scoping, abuse mitigation), or running it inside Nautilus. Trigger phrases - "extend the relayer", "fork the relayer", "add storage to relayer", "custom relayer handler", "PostgreSQL relayer", "relayer rate limiting", "checkpoint backfill", "checkpoint resume", "relayer missed events", "multi-tenant relayer", "relayer operator policy", "relayer abuse mitigation", "relayer group discovery endpoint", "expose memberships endpoint".
 ---
 
 # Develop the relayer
@@ -95,18 +95,34 @@ let storage: Arc<dyn StorageAdapter> = match env::var("STORAGE_TYPE").as_deref()
 
 The same pattern applies to `MEMBERSHIP_STORE_TYPE` (`src/auth/membership.rs`).
 
-### 2. Custom auth / allowlist / rate limit
+**A note on the abstraction:** the reference uses `Arc<dyn StorageAdapter>` for env-var-driven runtime swappability. A fork can pick the shape that fits its posture:
 
-`src/auth/middleware.rs` is the 7-step pipeline. To add an allowlist:
+- **Trait object (status quo)** — keeps multiple backends behind one type at the cost of a v-table dispatch per call.
+- **Generics** (`Relayer<S: StorageAdapter>`) — compile-time monomorphization; threads a generic param through anything that holds storage. (Note: `async_trait` already pays a boxed-future cost, so the dispatch win over `dyn` is smaller than for sync traits — pick generics for inlining and type-specific specialization, not micro-optimization.)
+- **Concrete type** — drop the trait entirely; depend on `PostgresStorage` (or whatever) directly. Idiomatic when you have one backend forever and no test-double need that an in-memory shim can't cover. Trades swap-out for simplicity.
 
-- Insert a check after membership verification but before handler dispatch.
-- Use an axum `from_fn_with_state` middleware so you can read shared config.
+Don't carry the trait just because the reference does — pick the shape that matches your fork's posture.
 
-For rate limiting, layer `tower::limit::RateLimitLayer` on the router in `main.rs`.
+### 2. Operator policy (rate limiting, tenant scoping, abuse mitigation)
+
+Things the wire contract leaves to the operator:
+
+- **Rate limiting** — `tower::limit::RateLimitLayer` on the router in `main.rs`, scoped per-IP, per-signer, or per-group as fits your hosting model.
+- **Tenant scoping** — a multi-tenant relayer can constrain itself to a configured set of group IDs. Reject writes for group IDs outside that set before they hit the auth pipeline.
+- **Abuse mitigation** — operator-side block of signer addresses or IPs as an emergency lever; the durable fix is removing the offending member from the group on-chain.
+- **Pre-auth filtering** — payload size limits, malformed-header rejection, etc., to drop bad requests before signature verification.
+
+Insert as axum middleware layers on the `Router` in `main.rs`, or as `from_fn_with_state` middleware before handler dispatch when shared config is needed.
+
+Note: app-level access control (who can post, join gating, role permissions) is enforced on-chain by `sui_groups` and the messaging permission types — it belongs in your own Move package, not here. See [`extend-smart-contracts`](../extend-smart-contracts/SKILL.md).
 
 ### 3. New endpoint
 
 Add a handler under `src/handlers/`, register on the `Router` in `main.rs`. If the endpoint mutates state, run it through the same auth middleware so signatures are verified consistently.
+
+A common motivating example: **expose a Group Discovery endpoint backed by the relayer's groups index** so clients can fetch a user's group memberships via a single REST call instead of running their own GraphQL queries (which is what `chat-app/` does today). `MembershipSyncService` already maintains the data; you only need a read handler over `MembershipStore` and a matching client caller.
+
+Whichever endpoint you add, the SDK won't call it on its own. Pair this with [`configure-custom-relayer-transport`](../configure-custom-relayer-transport/SKILL.md) to add the matching client method — either extend `HTTPRelayerTransport` (SDK-side fork) or implement a custom `RelayerTransport` that wraps the canonical methods plus your new one (keeps the SDK upgrade path clean).
 
 ### 4. Sponsor-key / gas strategy
 
