@@ -123,7 +123,7 @@ Per-component:
 
 ## Tooling baseline
 
-- Node: pnpm `>=10.17.0`.
+- Node: pnpm `>=10.17.0` — **use pnpm 10.x.** pnpm v11 no longer reads this repo's `package.json` `pnpm` config (build approvals + `overrides`), so a fresh install fails with `ERR_PNPM_IGNORED_BUILDS` / `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`. See [`docs/pnpm-v11-troubleshooting.md`](docs/pnpm-v11-troubleshooting.md).
 - Rust: stable + clippy + rustfmt.
 - Sui CLI: required for Move build/test/publish
 - Move edition: 2024.

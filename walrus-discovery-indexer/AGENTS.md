@@ -38,14 +38,14 @@ pnpm test                      # vitest run
 Translate from `.env.example`:
 
 - `NETWORK` — required, `testnet` or `mainnet`. Selects the Walrus package ID and the Sui fullnode gRPC URL.
-- `WALRUS_PUBLISHER_SUI_ADDRESS` — optional tier-1 sender filter; without it, the indexer inspects every certified blob (noisy).
+- `WALRUS_PUBLISHER_SUI_ADDRESS` — optional tier-1 sender filter; without it, the indexer inspects every certified blob (noisy). **Gotcha:** `.env.example` ships this uncommented as the literal placeholder `0x...`, so a plain `cp .env.example .env` makes the indexer filter on the string `0x...` (it logs `Sender filter active: 0x...` and matches nothing). Comment it out / leave it empty, or set a real publisher address.
 - `PORT` — optional REST API port, default `3001`.
 
 The fullnode gRPC URL is derived from `NETWORK` in `src/config.ts` and is not env-configurable today.
 
 ## Toolchain
 
-- pnpm (root constraint `>=10.17.0`)
+- pnpm (root constraint `>=10.17.0`) — **use pnpm 10.x.** On pnpm v11 a fresh `pnpm install` / `docker build` fails (`ERR_PNPM_IGNORED_BUILDS`, `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`); see [`../docs/pnpm-v11-troubleshooting.md`](../docs/pnpm-v11-troubleshooting.md).
 - TypeScript 5.7, ESM-only (`"type": "module"`)
 - vitest for tests
 - Dev loop: tsx watch (`pnpm dev`)

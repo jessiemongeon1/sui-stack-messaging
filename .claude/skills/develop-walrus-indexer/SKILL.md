@@ -32,6 +32,8 @@ pnpm start        # node dist/index.js
 pnpm test         # vitest run (test/**/*.test.ts)
 ```
 
+> **pnpm v11:** a fresh `pnpm install` here fails (`ERR_PNPM_IGNORED_BUILDS` / `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`) — pnpm v11 doesn't read this repo's `package.json` `pnpm` config. Use pnpm 10.x, or `pnpm install --ignore-scripts` (host) / pin `pnpm@10` in the Dockerfile. See [`../../../docs/pnpm-v11-troubleshooting.md`](../../../docs/pnpm-v11-troubleshooting.md).
+
 No linter is wired in; format and typecheck are implicit via `tsc`. If you add ESLint/Prettier, follow `ts-sdks/` conventions.
 
 ## Source layout

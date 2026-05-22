@@ -39,7 +39,7 @@ This means:
 
 ## Toolchain
 
-- pnpm (matches root constraint of `>=10.17.0`)
+- pnpm (matches root constraint of `>=10.17.0`) — **use pnpm 10.x.** On pnpm v11 a fresh `pnpm install` trips the esbuild build-script gate (`ERR_PNPM_IGNORED_BUILDS`, esbuild arrives via vite); clear it with `pnpm install --ignore-scripts`. See [`../docs/pnpm-v11-troubleshooting.md`](../docs/pnpm-v11-troubleshooting.md).
 - React 19
 - Vite 6 (no webpack/CRA)
 - TypeScript via `tsc -b` (project references)
