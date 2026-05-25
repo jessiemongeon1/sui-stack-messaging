@@ -55,6 +55,8 @@ sui_groups          = { git = "https://github.com/MystenLabs/sui-groups.git", su
 
 **Pin a release tag or commit SHA — never `main` — before any mainnet publish.** The example above uses `rev = "main"` only for local prototyping; `main` can shift between a testnet and a mainnet publish, leaving you with two non-identical compiled packages. The `sui_groups` line shows the right shape — pin to a specific commit and label it (here: `tag mainnet/v1`). The `Sui` framework dependency is added automatically by `sui move new`.
 
+**Don't add an `[addresses]` block** (a reflex from older Move tutorials). The canonical `sui_stack_messaging` is a new-style package — it resolves `suins` through an MVR `r.mvr` dependency — and adding `[addresses]` or `[dev-addresses]` flips your package to old-style, which fails the build with `Packages with old-style Move.toml files cannot depend on new-style packages`. Keep the manifest address-less, as `move/packages/example_app/Move.toml` does.
+
 ## Extension pattern 1 — custom Seal policy
 
 Use case: "only paid subscribers can read this group's messages."

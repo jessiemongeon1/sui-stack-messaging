@@ -17,3 +17,6 @@ CLAUDE.local.md
 
 # graphify experiment (local-only, not part of the canonical repo tooling)
 graphify-out/
+
+# skill eval harness (local-only tooling, not part of the canonical repo)
+.skill-evals/
